@@ -58,7 +58,10 @@ def rsi(close: pd.Series, n: int = 14) -> pd.Series:
 
 
 def cvd(df: pd.DataFrame) -> pd.Series:
-    """Cumulative volume delta. Uses aggressor 'side' if present, else close-open sign."""
+    """Cumulative volume delta. Prefers the precomputed (already-cumulative) 'cvd'
+    column built from real aggressor tape; else aggressor 'side'; else close-open sign."""
+    if "cvd" in df.columns:
+        return df["cvd"].astype(float).rename("cvd")
     if "side" in df.columns:
         sign = df["side"].map({"buy": 1, "sell": -1}).fillna(0)
     else:

@@ -56,6 +56,11 @@ HTTP_PROBES = [
         "https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1h&range=5d",
         lambda j: f"SPY pts={len(j['chart']['result'][0]['timestamp'])}",
     ),
+    (
+        "Kalshi (markets)",
+        "https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXBTCD&status=open&limit=1",
+        lambda j: f"open BTC market: {j['markets'][0]['ticker']}" if j.get("markets") else "no open markets",
+    ),
 ]
 
 # (label, ws url, subscribe payload, brief note)

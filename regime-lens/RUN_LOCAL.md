@@ -102,6 +102,33 @@ python -m ingest.derivs
 python -m ingest.crossasset
 ```
 
+## Phase 3 — the Kalshi capstone
+
+The screen's bottom panel ranks live Kalshi hourly BTC above/below markets
+(series `KXBTCD`) by **regime-gated edge**:
+
+- `ingest/kalshi.py` — public market data (no key): the nearest-resolving
+  above/below ladder, normalized to strike / expiry / quotes / depth.
+- `pricing/fair_prob.py` — regime-conditioned fair value of "BTC ≥ K at expiry":
+  driftless BS baseline, GBM-with-drift in TREND, OU mean-reversion toward
+  session VWAP when a RANGE inflection is active, and **None** (off the ranker)
+  in TRANSITIONAL / low-confidence tape.
+- `ranker/kalshi_rank.py` — fee-net edge on YES vs NO, scored by
+  `edge × (conf/100) × liquidity / (1 + spread)`. The `conf/100` term is the
+  discipline lock: low-confidence tape empties the list.
+
+It uses `rv_short` (or DVOL) for sigma and your spot as a BRTI proxy. **Before
+trusting any edge number, backtest `fair_prob` calibration** (do markets you
+rate 70% resolve YES ~70%?) and model against BRTI, not exchange spot — see the
+Validation section in the spec. The screen surfaces candidates; the human trades.
+
+Quick check:
+
+```bash
+python -m ingest.kalshi          # live ladder + minutes left
+python -m ranker.kalshi_rank     # ranker demo on a synthetic market
+```
+
 ## Notes
 
 - All timestamps are UTC epoch milliseconds end to end.

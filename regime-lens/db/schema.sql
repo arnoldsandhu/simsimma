@@ -42,3 +42,26 @@ CREATE TABLE IF NOT EXISTS vol (
   dvol        REAL,               -- Deribit DVOL
   skew_25d    REAL                -- 25-delta risk reversal
 );
+
+-- Kalshi live markets snapshot (Phase 3).
+CREATE TABLE IF NOT EXISTS kalshi_markets (
+  ts_utc       INTEGER NOT NULL,
+  ticker       TEXT NOT NULL,
+  strike       REAL NOT NULL,
+  expiry_utc   INTEGER NOT NULL,
+  yes_bid      REAL, yes_ask REAL,
+  depth_yes    REAL, depth_no REAL,
+  PRIMARY KEY (ts_utc, ticker)
+);
+
+-- Ranker output (Phase 3).
+CREATE TABLE IF NOT EXISTS kalshi_rank (
+  ts_utc       INTEGER NOT NULL,
+  ticker       TEXT NOT NULL,
+  p_fair       REAL,
+  side         TEXT,              -- 'YES'/'NO'
+  edge_net     REAL,
+  score        REAL,
+  mins_left    REAL,
+  PRIMARY KEY (ts_utc, ticker)
+);

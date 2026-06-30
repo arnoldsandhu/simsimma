@@ -146,3 +146,48 @@ def fetch_latest_vol(conn: sqlite3.Connection) -> dict | None:
     if not row:
         return None
     return {"ts_utc": row[0], "rv_short": row[1], "dvol": row[2], "skew_25d": row[3]}
+
+
+def upsert_kalshi_markets(conn: sqlite3.Connection, ts_utc: int, markets: list) -> int:
+    """Persist a Kalshi market snapshot (normalized dicts from ingest.kalshi)."""
+    if not markets:
+        return 0
+    rows = [
+        (int(ts_utc), m["ticker"], m["strike"], int(m["expiry_ms"]),
+         m.get("yes_bid"), m.get("yes_ask"), m.get("depth_yes"), m.get("depth_no"))
+        for m in markets if m.get("ticker")
+    ]
+    conn.executemany(
+        """INSERT INTO kalshi_markets
+           (ts_utc, ticker, strike, expiry_utc, yes_bid, yes_ask, depth_yes, depth_no)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(ts_utc, ticker) DO UPDATE SET
+             strike=excluded.strike, expiry_utc=excluded.expiry_utc,
+             yes_bid=excluded.yes_bid, yes_ask=excluded.yes_ask,
+             depth_yes=excluded.depth_yes, depth_no=excluded.depth_no""",
+        rows,
+    )
+    conn.commit()
+    return len(rows)
+
+
+def upsert_kalshi_rank(conn: sqlite3.Connection, ts_utc: int, ranked: list) -> int:
+    """Persist ranker output (rows from ranker.kalshi_rank.rank)."""
+    if not ranked:
+        return 0
+    rows = [
+        (int(ts_utc), r["ticker"], r.get("p_fair"), r.get("side"),
+         r.get("edge_net"), r.get("score"), r.get("mins_left"))
+        for r in ranked if r.get("ticker")
+    ]
+    conn.executemany(
+        """INSERT INTO kalshi_rank
+           (ts_utc, ticker, p_fair, side, edge_net, score, mins_left)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(ts_utc, ticker) DO UPDATE SET
+             p_fair=excluded.p_fair, side=excluded.side, edge_net=excluded.edge_net,
+             score=excluded.score, mins_left=excluded.mins_left""",
+        rows,
+    )
+    conn.commit()
+    return len(rows)

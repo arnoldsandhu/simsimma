@@ -18,7 +18,8 @@ import pandas as pd
 
 from db import store
 from ingest.bars import resample_trades, TF_MS
-from ingest import deribit, derivs, crossasset
+from ingest import deribit, derivs, crossasset, kalshi
+from ranker.kalshi_rank import rank as kalshi_rank
 from features.indicators import (
     atr,
     cvd,
@@ -43,6 +44,10 @@ YEAR_MS = 365.25 * 86_400 * 1000
 # ~15s screen refresh doesn't hammer the APIs. {tf-agnostic single entry}
 _P2_TTL_MS = 300_000
 _p2_cache: dict = {"ts": 0, "ext": None, "sources": None}
+
+# Kalshi quotes move faster than confluence -> shorter cache.
+_KALSHI_TTL_MS = 30_000
+_kalshi_cache: dict = {"ts": 0, "markets": None}
 
 _BIAS = {
     "TREND_UP": "WITH-TREND LONG — only buy with-trend pullbacks, never fade",
@@ -76,6 +81,9 @@ class Snapshot:
     confluence_ext: dict
     # per-source freshness {name: {age_s, ...}}
     sources: dict
+    # Phase 3 Kalshi ranker output (scored candidates) + a status note
+    kalshi: list
+    kalshi_note: str
 
 
 def _rv_short(df: pd.DataFrame, tf: str, window: int = 30) -> float | None:
@@ -125,6 +133,47 @@ def _phase2(now_ms: int) -> tuple[dict, dict]:
 
     _p2_cache.update(ts=now_ms, ext=ext, sources=sources)
     return ext, sources
+
+
+def _trend_drift(df: pd.DataFrame, tf: str, window: int = 60) -> float:
+    """Annualized drift from recent log returns, clipped. Magnitude feeds the
+    trend-regime fair value; sign is anchored by the regime label downstream."""
+    lr = np.log(df["close"]).diff().dropna()
+    if len(lr) < 20:
+        return 0.0
+    mu = float(lr.tail(window).mean() * (YEAR_MS / TF_MS[tf]))
+    return float(np.clip(mu, -2.0, 2.0))
+
+
+def _get_markets(now_ms: int) -> list:
+    """TTL-cached Kalshi market fetch (quotes move fast -> short cache)."""
+    if _kalshi_cache["markets"] is not None and (now_ms - _kalshi_cache["ts"]) < _KALSHI_TTL_MS:
+        return _kalshi_cache["markets"]
+    mk = kalshi.get_markets()
+    _kalshi_cache.update(ts=now_ms, markets=mk)
+    return mk
+
+
+def _rank_kalshi(conn, now_ms, *, S, sigma, regime, conf, inflection_active,
+                 session_vwap, trend_drift, tf) -> tuple[list, str]:
+    """Fetch markets, rank by regime-gated edge, persist. Returns (rows, note)."""
+    if sigma is None or sigma <= 0:
+        return [], "no vol estimate (need rv_short or DVOL) — ranker idle"
+    if regime == "TRANSITIONAL":
+        return [], "transitional regime — ranker stands down by design"
+    markets = _get_markets(now_ms)
+    if not markets:
+        return [], "no live Kalshi markets (or fetch failed)"
+    store.upsert_kalshi_markets(conn, now_ms, markets)
+    rows = kalshi_rank(
+        markets, S=S, sigma=sigma, regime=regime, conf=conf,
+        inflection_active=inflection_active, session_vwap=session_vwap,
+        trend_drift=trend_drift, now_ms=now_ms,
+    )
+    store.upsert_kalshi_rank(conn, now_ms, rows)
+    note = (f"{len(rows)} candidate(s) from {len(markets)} markets"
+            if rows else "no positive-edge candidates this read")
+    return rows, note
 
 
 def _read_trades(conn: sqlite3.Connection, venue: str) -> pd.DataFrame:
@@ -216,6 +265,7 @@ def _evaluate(df: pd.DataFrame, warmup: int) -> dict:
         "levels": lv["levels"],
         "spot": lv["spot"],
         "confluence": confluence,
+        "session_vwap": float(vw["vwap"].iloc[-1]),
     }
 
 
@@ -243,10 +293,21 @@ def build_snapshot(conn, tf: str = "1m", now_ms: int = 0,
             label=None, confidence=None, vol_state=None, transition_p=None,
             bias=None, inflection=None, levels=[], confluence={},
             confluence_ext=ext, sources=sources,
+            kalshi=[], kalshi_note="warming up — no regime read yet",
         )
 
     ev = _evaluate(df, warmup)
     r = ev["reading"]
+
+    # Phase 3: regime-gated Kalshi ranking. sigma from rv_short (responsive),
+    # else DVOL scaled to a fraction. S is our spot as a BRTI proxy.
+    sigma = ext.get("rv_short") or (ext.get("dvol") / 100 if ext.get("dvol") else None)
+    kalshi_rows, kalshi_note = _rank_kalshi(
+        conn, now_ms, S=ev["spot"], sigma=sigma, regime=r.label, conf=r.confidence,
+        inflection_active=ev["inflection"] is not None, session_vwap=ev["session_vwap"],
+        trend_drift=_trend_drift(df, tf), tf=tf,
+    )
+
     return Snapshot(
         ok=True, status="live", tf=tf, now_ms=now_ms, last_bar_ms=last_bar,
         n_closed=n_closed, spot=ev["spot"],
@@ -254,6 +315,7 @@ def build_snapshot(conn, tf: str = "1m", now_ms: int = 0,
         transition_p=round(r.transition_p, 3), bias=_BIAS.get(r.label),
         inflection=ev["inflection"], levels=ev["levels"], confluence=ev["confluence"],
         confluence_ext=ext, sources=sources,
+        kalshi=kalshi_rows, kalshi_note=kalshi_note,
     )
 
 

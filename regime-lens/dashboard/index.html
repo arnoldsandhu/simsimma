@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Regime Lens</title>
+<style>
+  :root { --bg:#0b0f14; --card:#141b24; --muted:#7c8a9a; --line:#22303d; --txt:#e8eef4; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         padding:max(10px,env(safe-area-inset-top)) 10px 40px; }
+  .wrap { max-width:520px; margin:0 auto; }
+  .row { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .muted { color:var(--muted); font-size:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px;
+          padding:14px; margin:10px 0; }
+  .banner { border-radius:16px; padding:16px; color:#04121a; }
+  .banner .lbl { font-size:34px; font-weight:800; letter-spacing:-.5px; }
+  .banner .sub { font-size:14px; opacity:.85; margin-top:2px; }
+  .pill { display:inline-block; font-size:12px; font-weight:700; padding:2px 8px;
+          border-radius:999px; background:#04121a22; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);
+       margin:0 0 6px; }
+  .big { font-size:22px; font-weight:800; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); }
+  th:first-child,td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:600; }
+  .yes { color:#34d399; font-weight:700; } .no { color:#f87171; font-weight:700; }
+  details { margin:10px 0; } summary { cursor:pointer; font-weight:700; padding:6px 0; }
+  .warn { background:#3a2a06; border-color:#6b4e0a; }
+  .stale { background:#3a0a0a; border-color:#6b1111; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:6px 14px; }
+  .kv { display:flex; justify-content:space-between; border-bottom:1px solid var(--line); padding:4px 0; }
+  footer { color:var(--muted); font-size:11px; margin-top:18px; text-align:center; line-height:1.5; }
+  a { color:#5fa8e8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row">
+    <div class="big">Regime&nbsp;Lens</div>
+    <div class="muted" id="freshness">loading…</div>
+  </div>
+  <div id="staleBanner"></div>
+  <div id="app"><div class="card">Loading snapshot…</div></div>
+  <footer>
+    Decision-support only — directional research, <b>not</b> a trade signal, not financial advice.
+    Edges are model-vs-market and only as good as the vol estimate, regime read, and the
+    spot-vs-BRTI basis. Size off regime confidence, not raw edge.
+  </footer>
+</div>
+<script>
+const REFRESH_MS = 20000;
+const COLOR = { TREND_UP:"#0EA5A4", TREND_DOWN:"#0EA5A4", RANGE:"#2563EB", TRANSITIONAL:"#E0A800" };
+const f = (x,d=2)=> (x===null||x===undefined||Number.isNaN(x)) ? "—" : (typeof x==="number"? x.toFixed(d): x);
+const money = x => (x===null||x===undefined) ? "—" : "$"+Number(x).toLocaleString(undefined,{maximumFractionDigits:2});
+const ageStr = ms => { if(ms===null||ms===undefined) return "—"; const s=Math.max(0,Math.round((Date.now()-ms)/1000));
+  return s<90? s+"s ago" : Math.round(s/60)+"m ago"; };
+
+async function getJSON(name){ try{ const r=await fetch(name+"?t="+Date.now(),{cache:"no-store"});
+  if(!r.ok) return null; return await r.json(); }catch(e){ return null; } }
+
+function topCard(s){
+  const rows = s.kalshi||[];
+  if(!rows.length){
+    return `<div class="card"><h2>Top signal</h2><div class="big">Stand down</div>
+      <div class="muted">${s.kalshi_note||"no candidate"}</div></div>`;
+  }
+  const r = rows[0];
+  const sideCls = r.side==="YES"?"yes":"no";
+  return `<div class="card"><h2>Top signal</h2>
+    <div class="row"><div class="big"><span class="${sideCls}">${r.side}</span> ${money(r.strike)}</div>
+      <div class="muted">${f(r.mins_left,0)}m left</div></div>
+    <div class="muted" style="margin:4px 0">${r.ticker}</div>
+    <div class="grid2" style="margin-top:6px">
+      <div class="kv"><span>fair p</span><b>${f(r.p_fair,3)}</b></div>
+      <div class="kv"><span>market</span><b>${f(r.market_price,2)}</b></div>
+      <div class="kv"><span>edge (net)</span><b>${f(r.edge_net,3)}</b></div>
+      <div class="kv"><span>σ-sens</span><b>${f(r.sigma_sens,3)}</b></div>
+    </div></div>`;
+}
+
+function rankerTable(s){
+  const rows=(s.kalshi||[]).slice(0,12);
+  if(!rows.length) return "";
+  const body=rows.map(r=>`<tr><td>${money(r.strike)}</td>
+    <td class="${r.side==='YES'?'yes':'no'}">${r.side}</td>
+    <td>${f(r.p_fair,2)}</td><td>${f(r.market_price,2)}</td>
+    <td>${f(r.edge_net,3)}</td><td>${f(r.mins_left,0)}</td></tr>`).join("");
+  return `<details><summary>Full ranker (${(s.kalshi||[]).length})</summary>
+    <table><thead><tr><th>strike</th><th>side</th><th>p</th><th>mkt</th><th>edge</th><th>min</th></tr></thead>
+    <tbody>${body}</tbody></table></details>`;
+}
+
+function levels(s){
+  const lv=s.levels||[]; if(!lv.length) return "";
+  const body=lv.slice(0,10).map(([n,p,d])=>`<tr><td>${n}</td><td>${money(p)}</td><td>${f(d,2)}%</td></tr>`).join("");
+  return `<details><summary>Levels</summary><table><thead><tr><th>level</th><th>price</th><th>dist</th></tr></thead>
+    <tbody>${body}</tbody></table></details>`;
+}
+
+function confluence(s){
+  const c=s.confluence||{}, e=s.confluence_ext||{};
+  const kv=(k,v)=>`<div class="kv"><span>${k}</span><b>${v}</b></div>`;
+  const bar=Object.entries(c).map(([k,v])=>kv(k,f(v,3))).join("");
+  const ext=[
+    kv("funding (ann)",f(e.funding_annualized,3)), kv("basis bps",f(e.basis_bps,1)),
+    kv("DVOL",f(e.dvol,1)), kv("25Δ skew",f(e.skew_25d,1)),
+    kv("rv_short",f(e.rv_short,2)), kv("corr QQQ",f(e.corr_qqq,2)),
+    kv("β QQQ",f(e.beta_qqq,2)), kv("risk",e.risk_regime||"—"),
+  ].join("");
+  return `<details><summary>Confluence</summary>
+    <div class="grid2">${ext}</div>
+    <h2 style="margin-top:10px">bar-derived</h2><div class="grid2">${bar}</div></details>`;
+}
+
+function render(s){
+  const fresh=document.getElementById("freshness");
+  fresh.textContent = `bar ${ageStr(s.last_bar_ms)} · pub ${ageStr(s.generated_ms)}`;
+  const sb=document.getElementById("staleBanner");
+  const stale = s.generated_ms && (Date.now()-s.generated_ms) > 180000;
+  sb.innerHTML = stale ? `<div class="card stale">⚠️ Data is stale (${ageStr(s.generated_ms)}). Publisher may be down.</div>` : "";
+
+  const app=document.getElementById("app");
+  if(!s.ok){
+    app.innerHTML = `<div class="card warn"><h2>Warming up</h2>
+      <div class="big">${s.status||""}</div>
+      <div class="kv"><span>spot</span><b>${money(s.spot)}</b></div></div>` + confluence(s);
+    return;
+  }
+  const col = COLOR[s.label]||"#888";
+  const tflag = (s.transition_p>=0.5)? `<span class="pill">⚠ transition ${f(s.transition_p,2)}</span>` : "";
+  app.innerHTML =
+    `<div class="card banner" style="background:${col}">
+       <div class="lbl">${s.label}</div>
+       <div class="sub">confidence ${f(s.confidence,0)}/100 · vol ${s.vol_state} ${tflag}</div>
+     </div>
+     <div class="card"><h2>Bias</h2><div class="big">${s.bias||"—"}</div>
+       ${s.inflection? `<div class="muted">inflection: ${s.inflection}</div>`:""}
+       <div class="kv" style="margin-top:6px"><span>spot</span><b>${money(s.spot)}</b></div>
+       <div class="kv"><span>BRTI proxy</span><b>${money(s.brti)} <span class="muted">(${f(s.brti_basis_bps,1)} bps)</span></b></div>
+     </div>`
+    + topCard(s) + rankerTable(s) + levels(s) + confluence(s);
+}
+
+async function tick(){ const s=await getJSON("snapshot.json"); if(s) render(s); }
+tick(); setInterval(tick, REFRESH_MS);
+</script>
+</body>
+</html>

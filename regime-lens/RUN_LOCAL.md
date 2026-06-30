@@ -179,6 +179,41 @@ and compares predicted P(YES) to the actual resolution. It reports two numbers:
 Outcomes are real Kalshi settlements; the decision-time spot is still a Coinbase
 proxy (BRTI parked), so close that basis before trusting absolute edges.
 
+## Mobile dashboard (GitHub Pages)
+
+A signal-first, phone-friendly page (`dashboard/index.html`) that reads a
+`snapshot.json` the publisher regenerates. View it from any phone browser.
+
+**⚠️ PRIVACY:** GitHub Pages on a **public** repo is a **public URL** — anyone
+with the link sees your snapshot. Keep `simsimma` private (Pages on private repos
+needs a paid GitHub plan) or accept that this is directional research, not secret
+signal. The published payload contains no keys or account data.
+
+Preview the page locally (no git), while `spot_ws.py` is capturing:
+
+```bash
+python scripts/publish_dashboard.py --out /tmp/dash      # writes index.html + snapshot.json + history.json
+cd /tmp/dash && python -m http.server 8501               # open http://localhost:8501 on your phone (same wifi)
+```
+
+Publish to GitHub Pages from your home PC (run alongside the capture):
+
+```bash
+python scripts/publish_dashboard.py --db regime.db --interval 60
+```
+
+This force-pushes a single rolling commit to a dedicated `dashboard` branch (via
+a git worktree at `.dashboard-wt/`, so your working tree and `main` are
+untouched — no commit-history bloat). Then, one time:
+
+1. GitHub → repo **Settings → Pages**.
+2. Source: **Deploy from a branch**, branch **`dashboard`**, folder **`/docs`**.
+3. Bookmark the published URL on your phone. The page auto-refreshes every ~20s
+   and shows a stale banner if the publisher stops.
+
+The dashboard needs the regime engine to be past warmup (~250 closed 1m bars)
+before it shows a label; until then it shows a warming-up card.
+
 ## Notes
 
 - All timestamps are UTC epoch milliseconds end to end.

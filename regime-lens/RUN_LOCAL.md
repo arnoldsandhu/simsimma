@@ -156,6 +156,29 @@ production calibrate against BRTI. If a regime's bins are systematically off
 (e.g. trend probabilities running hot), temper that model before sizing off its
 edge.
 
+### Real-resolution calibration (validate against actual Kalshi outcomes)
+
+The harness above scores synthetic strikes on a spot series. This one scores the
+model on the REAL contracts that traded — real strikes, real expiries, real
+YES/NO settlements pulled from Kalshi's settled-markets API:
+
+```bash
+python scripts/run_kalshi_calibration.py --hours 48
+```
+
+For each settled `KXBTCD` market it takes several decision times before the
+close, runs the regime engine + `fair_prob` on the Coinbase spot at that moment,
+and compares predicted P(YES) to the actual resolution. It reports two numbers:
+
+- the **aggregate** — flattered, because the KXBTCD ladder is mostly deep
+  ITM/OTM strikes that are trivially correct; and
+- the **non-trivial near-the-money slice (0.05 < p < 0.95)** — *this is the
+  number to read*. It's sparse (a few hundred predictions per day), so run it
+  over many days before drawing conclusions.
+
+Outcomes are real Kalshi settlements; the decision-time spot is still a Coinbase
+proxy (BRTI parked), so close that basis before trusting absolute edges.
+
 ## Notes
 
 - All timestamps are UTC epoch milliseconds end to end.

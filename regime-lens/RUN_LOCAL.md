@@ -58,6 +58,29 @@ The resampler and storage layer turn that tape into closed bars:
 `fetch_bars` is what feeds the existing `run_regime.py` pipeline — point it at
 the same `regime.db` and it will only ever see closed bars.
 
+## Watching it label live (the screen)
+
+Once you have a couple of hours of tape (the regime engine needs ~250+ closed
+1m bars before it publishes a label — until then the screen shows a "warming
+up N/250" state), start the screen in a second terminal while `spot_ws.py`
+keeps running:
+
+```bash
+streamlit run app.py
+```
+
+It opens at http://localhost:8501 and refreshes every ~15s. Each refresh
+resamples the latest tape into closed bars and runs the regime engine, so you
+watch REGIME / BIAS / LEVELS / CONFLUENCE update live as bars close. The
+sidebar switches timeframe (1m/5m/15m/1h) and bar-source venue. The Kalshi
+ranker panel is a Phase 3 stub.
+
+Headless check (no browser, useful to confirm wiring):
+
+```bash
+python app.py --selftest --db regime.db
+```
+
 ## Notes
 
 - All timestamps are UTC epoch milliseconds end to end.

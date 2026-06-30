@@ -16,6 +16,7 @@ yfinance>=0.2.40
 
 # Screen
 streamlit>=1.33
+streamlit-autorefresh>=1.0   # optional: enables the screen's auto-refresh loop
 
 # Dev
 pytest>=8.0

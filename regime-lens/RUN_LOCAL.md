@@ -81,6 +81,27 @@ Headless check (no browser, useful to confirm wiring):
 python app.py --selftest --db regime.db
 ```
 
+## Phase 2 confluence (derivatives / vol / cross-asset)
+
+The screen pulls these on a ~5-minute cache (so the 15s refresh doesn't hammer
+the APIs); no websocket needed, all free/no-key by default:
+
+- `ingest/deribit.py` — DVOL and a delta-interpolated 25Δ skew (risk reversal)
+  from the Deribit option chain.
+- `ingest/derivs.py` — funding / open interest / basis. Tries Coinglass (only if
+  `COINGLASS_KEY` is set in `.env`), then OKX (no key), then Deribit perp.
+- `ingest/crossasset.py` — BTC vs SPY/QQQ/GLD/UUP hourly correlation + beta and a
+  coarse risk-on/off tag, via the Yahoo chart API.
+
+DVOL, 25Δ skew and `rv_short` are also persisted to the `vol` table for the
+Phase 3 pricing layer. Each module runs standalone for a quick check, e.g.:
+
+```bash
+python -m ingest.deribit
+python -m ingest.derivs
+python -m ingest.crossasset
+```
+
 ## Notes
 
 - All timestamps are UTC epoch milliseconds end to end.

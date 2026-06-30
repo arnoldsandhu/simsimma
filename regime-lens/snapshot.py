@@ -17,7 +17,8 @@ import numpy as np
 import pandas as pd
 
 from db import store
-from ingest.bars import resample_trades
+from ingest.bars import resample_trades, TF_MS
+from ingest import deribit, derivs, crossasset
 from features.indicators import (
     atr,
     cvd,
@@ -36,6 +37,12 @@ from regime.inflection import detect_inflection
 
 # Enough history for Hurst(120) + a meaningful HMM fit before we publish a label.
 DEFAULT_WARMUP = 250
+
+YEAR_MS = 365.25 * 86_400 * 1000
+# Phase 2 confluence (funding/skew/cross-asset) moves slowly; cache it so the
+# ~15s screen refresh doesn't hammer the APIs. {tf-agnostic single entry}
+_P2_TTL_MS = 300_000
+_p2_cache: dict = {"ts": 0, "ext": None, "sources": None}
 
 _BIAS = {
     "TREND_UP": "WITH-TREND LONG — only buy with-trend pullbacks, never fade",
@@ -65,6 +72,59 @@ class Snapshot:
     levels: list
     # confluence diagnostics (name -> value) with the last-bar freshness above
     confluence: dict
+    # Phase 2 external confluence (funding/OI/basis, DVOL/skew, cross-asset)
+    confluence_ext: dict
+    # per-source freshness {name: {age_s, ...}}
+    sources: dict
+
+
+def _rv_short(df: pd.DataFrame, tf: str, window: int = 30) -> float | None:
+    """Annualized realized vol from the last `window` closed-bar log returns."""
+    if len(df) < window + 1:
+        return None
+    sigma = np.log(df["close"]).diff().tail(window).std()
+    if sigma is None or np.isnan(sigma):
+        return None
+    bars_per_year = YEAR_MS / TF_MS[tf]
+    return round(float(sigma * np.sqrt(bars_per_year)), 4)
+
+
+def _phase2(now_ms: int) -> tuple[dict, dict]:
+    """Fetch (TTL-cached) external confluence: funding/OI/basis, DVOL/skew,
+    cross-asset corr/beta. Returns (confluence_ext, sources)."""
+    if _p2_cache["ext"] is not None and (now_ms - _p2_cache["ts"]) < _P2_TTL_MS:
+        return _p2_cache["ext"], _p2_cache["sources"]
+
+    dv = deribit.fetch(now_ms=now_ms)
+    fb = derivs.get_funding_oi_basis()
+    ca = crossasset.fetch()
+
+    ext = {
+        "funding_rate": fb.get("funding_rate"),
+        "funding_annualized": fb.get("funding_annualized"),
+        "open_interest": fb.get("open_interest"),
+        "basis_bps": fb.get("basis_bps"),
+        "dvol": dv.get("dvol"),
+        "skew_25d": dv.get("skew_25d"),
+        "atm_iv": dv.get("atm_iv"),
+        "corr_qqq": ca.get("corr_qqq"), "beta_qqq": ca.get("beta_qqq"),
+        "corr_spy": ca.get("corr_spy"), "beta_spy": ca.get("beta_spy"),
+        "corr_gld": ca.get("corr_gld"), "corr_uup": ca.get("corr_uup"),
+        "risk_regime": ca.get("risk_regime"),
+    }
+
+    def age(ts_ms):
+        # clamp: providers stamp their own time, often a beat after now_ms
+        return max(0.0, round((now_ms - ts_ms) / 1000, 0)) if ts_ms else None
+
+    sources = {
+        "deribit (DVOL/skew)": {"age_s": age(dv.get("ts_ms"))},
+        f"perp [{fb.get('source')}] (funding/OI/basis)": {"age_s": age(fb.get("ts_ms"))},
+        "cross-asset (Yahoo)": {"age_s": age(ca.get("ts_ms")), "n_bars": ca.get("n")},
+    }
+
+    _p2_cache.update(ts=now_ms, ext=ext, sources=sources)
+    return ext, sources
 
 
 def _read_trades(conn: sqlite3.Connection, venue: str) -> pd.DataFrame:
@@ -167,6 +227,13 @@ def build_snapshot(conn, tf: str = "1m", now_ms: int = 0,
     n_closed = len(df)
     last_bar = int(df["ts"].iloc[-1]) if n_closed else None
 
+    # Phase 2 external confluence + persist vol inputs (rv_short / DVOL / skew).
+    ext, sources = _phase2(now_ms)
+    rv_short = _rv_short(df, tf) if n_closed else None
+    store.upsert_vol(conn, now_ms, rv_short=rv_short,
+                     dvol=ext.get("dvol"), skew_25d=ext.get("skew_25d"))
+    ext = {**ext, "rv_short": rv_short}
+
     if n_closed < warmup:
         # Not enough history yet -- show progress + spot, no regime label.
         spot = float(df["close"].iloc[-1]) if n_closed else None
@@ -175,6 +242,7 @@ def build_snapshot(conn, tf: str = "1m", now_ms: int = 0,
             tf=tf, now_ms=now_ms, last_bar_ms=last_bar, n_closed=n_closed, spot=spot,
             label=None, confidence=None, vol_state=None, transition_p=None,
             bias=None, inflection=None, levels=[], confluence={},
+            confluence_ext=ext, sources=sources,
         )
 
     ev = _evaluate(df, warmup)
@@ -185,6 +253,7 @@ def build_snapshot(conn, tf: str = "1m", now_ms: int = 0,
         label=r.label, confidence=round(r.confidence, 1), vol_state=r.vol_state,
         transition_p=round(r.transition_p, 3), bias=_BIAS.get(r.label),
         inflection=ev["inflection"], levels=ev["levels"], confluence=ev["confluence"],
+        confluence_ext=ext, sources=sources,
     )
 
 

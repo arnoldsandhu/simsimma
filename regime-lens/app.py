@@ -61,6 +61,7 @@ def render(st, snap, now_ms: int) -> None:
             st.metric("Spot (BTC-USD)", f"${snap.spot:,.2f}")
         st.info("The regime engine needs more history before it will publish a "
                 "label. Keep ingest/spot_ws.py running.")
+        _render_confluence_ext(st, snap)  # Phase 2 reads don't need bar warmup
         return
 
     # 1) REGIME -------------------------------------------------------------- #
@@ -94,7 +95,7 @@ def render(st, snap, now_ms: int) -> None:
         ]
         st.dataframe(rows, use_container_width=True, hide_index=True)
 
-    # 5) CONFLUENCE DETAIL --------------------------------------------------- #
+    # 5) CONFLUENCE DETAIL (bar-derived) ------------------------------------ #
     with col_r:
         st.subheader("Confluence detail")
         st.caption(f"as of {_utc(snap.last_bar_ms)} ({_age(snap.last_bar_ms, now_ms)})")
@@ -103,10 +104,51 @@ def render(st, snap, now_ms: int) -> None:
             use_container_width=True, hide_index=True,
         )
 
+    # Phase 2 external confluence ------------------------------------------- #
+    _render_confluence_ext(st, snap)
+
     # 4) KALSHI RANKER (Phase 3 stub) --------------------------------------- #
     st.subheader("Kalshi ranker")
     st.info("Phase 3 — not wired yet. Lands here once kalshi.py + fair_prob.py "
             "+ kalshi_rank.py are built on top of this regime read.")
+
+
+def _render_confluence_ext(st, snap) -> None:
+    """Phase 2 confluence: derivatives, vol surface, cross-asset + freshness."""
+    ext = snap.confluence_ext or {}
+    if not ext:
+        return
+    st.subheader("Confluence — derivatives / vol / cross-asset (Phase 2)")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("**Perp derivatives**")
+        st.dataframe([
+            {"signal": "funding (raw)", "value": ext.get("funding_rate")},
+            {"signal": "funding (annualized)", "value": ext.get("funding_annualized")},
+            {"signal": "open interest", "value": ext.get("open_interest")},
+            {"signal": "basis (bps)", "value": ext.get("basis_bps")},
+        ], use_container_width=True, hide_index=True)
+    with c2:
+        st.markdown("**Vol surface**")
+        st.dataframe([
+            {"signal": "DVOL", "value": ext.get("dvol")},
+            {"signal": "ATM IV", "value": ext.get("atm_iv")},
+            {"signal": "25d skew (RR)", "value": ext.get("skew_25d")},
+            {"signal": "rv_short (annualized)", "value": ext.get("rv_short")},
+        ], use_container_width=True, hide_index=True)
+    with c3:
+        st.markdown(f"**Cross-asset** · regime: `{ext.get('risk_regime')}`")
+        st.dataframe([
+            {"signal": "corr QQQ", "value": ext.get("corr_qqq"), "beta": ext.get("beta_qqq")},
+            {"signal": "corr SPY", "value": ext.get("corr_spy"), "beta": ext.get("beta_spy")},
+            {"signal": "corr GLD", "value": ext.get("corr_gld"), "beta": None},
+            {"signal": "corr UUP", "value": ext.get("corr_uup"), "beta": None},
+        ], use_container_width=True, hide_index=True)
+    if snap.sources:
+        st.caption(" · ".join(
+            f"{name}: {('%.0fs ago' % m['age_s']) if m.get('age_s') is not None else 'n/a'}"
+            for name, m in snap.sources.items()
+        ))
 
 
 def main() -> None:
@@ -155,6 +197,8 @@ def selftest(db: str, tf: str, venue: str) -> None:
         print(f"INFLECTION: {snap.inflection}")
         print(f"LEVELS (nearest 5): {snap.levels[:5]}")
         print(f"CONFLUENCE: {snap.confluence}")
+    print(f"CONFLUENCE_EXT (Phase 2): {snap.confluence_ext}")
+    print(f"SOURCES: {snap.sources}")
 
 
 if __name__ == "__main__":

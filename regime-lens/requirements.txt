@@ -12,7 +12,8 @@ ruptures>=1.1
 pandas-ta>=0.3.14b0
 
 # Data sources (Phase 2/3)
-yfinance>=0.2.40
+# Cross-asset (Phase 2) pulls Yahoo's chart API directly via requests — no
+# yfinance, whose curl_cffi backend fails TLS through some proxies.
 
 # Screen
 streamlit>=1.33

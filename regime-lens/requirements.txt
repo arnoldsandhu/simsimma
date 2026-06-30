@@ -1,0 +1,21 @@
+# Regime Lens — runtime + dev deps (home PC, Python 3.11+)
+pandas>=2.0
+numpy>=1.24
+requests>=2.31
+websockets>=12.0
+
+# Regime engine / pricing (used by the already-written regime modules)
+scipy>=1.11
+statsmodels>=0.14
+hmmlearn>=0.3
+ruptures>=1.1
+pandas-ta>=0.3.14b0
+
+# Data sources (Phase 2/3)
+yfinance>=0.2.40
+
+# Screen
+streamlit>=1.33
+
+# Dev
+pytest>=8.0

@@ -1,0 +1,65 @@
+# Running Regime Lens locally
+
+The live tape capture (`ingest/spot_ws.py`) needs a **persistent outbound
+websocket** and will not hold a connection in a remote sandbox / CI. Do the
+capture step on your home machine. Everything else (resampling, the regime
+engine, the screen) reads from the resulting SQLite file and is environment
+agnostic.
+
+## One-time setup
+
+```bash
+cd regime-lens
+python -m venv .venv && source .venv/bin/activate   # optional but recommended
+pip install -r requirements.txt
+cp .env.example .env        # then fill in any keys you have (none needed for spot capture)
+```
+
+`.env` is gitignored — keep all secrets there, never in code.
+
+## The one local step that must run locally
+
+1. **Confirm websocket reachability** (this is the test that matters; HTTP
+   alone is not enough):
+
+   ```bash
+   python scripts/connectivity_check.py
+   ```
+
+   You want the WEBSOCKET section to show `PASS` for at least Coinbase. The
+   HTTP section passing is necessary but not sufficient — a sandbox passes HTTP
+   and still cannot hold a websocket.
+
+2. **Start capturing tape into SQLite:**
+
+   ```bash
+   python ingest/spot_ws.py --db regime.db --venues coinbase
+   # or both venues:
+   python ingest/spot_ws.py --db regime.db --venues coinbase,kraken
+   ```
+
+   This runs until you Ctrl-C it. It writes raw prints into the `trades`
+   table and reconnects automatically if the socket drops. Leave it running
+   to accumulate tape.
+
+## Feeding the regime pipeline
+
+The resampler and storage layer turn that tape into closed bars:
+
+- `ingest/bars.py::resample_trades(trades_df, tf, now_ms)` builds OHLCV+CVD
+  bars and marks a bar `closed=1` only once its window has fully elapsed
+  relative to `now_ms` (the look-ahead guard).
+- `db/store.py::upsert_bars(conn, bars)` persists them (updating the forming
+  bar in place until it closes).
+- `db/store.py::fetch_bars(conn, tf, n)` returns the last `n` **closed** bars
+  in the schema the feature modules expect:
+  `ts, open, high, low, close, volume, cvd`.
+
+`fetch_bars` is what feeds the existing `run_regime.py` pipeline — point it at
+the same `regime.db` and it will only ever see closed bars.
+
+## Notes
+
+- All timestamps are UTC epoch milliseconds end to end.
+- Run `connectivity_check.py` again any time tape capture looks stalled; a
+  failed websocket probe usually explains it.

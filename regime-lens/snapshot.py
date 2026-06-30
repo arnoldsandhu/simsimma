@@ -18,7 +18,7 @@ import pandas as pd
 
 from db import store
 from ingest.bars import resample_trades, TF_MS
-from ingest import deribit, derivs, crossasset, kalshi
+from ingest import deribit, derivs, crossasset, kalshi, brti
 from ranker.kalshi_rank import rank as kalshi_rank
 from features.indicators import (
     atr,
@@ -48,6 +48,10 @@ _p2_cache: dict = {"ts": 0, "ext": None, "sources": None}
 # Kalshi quotes move faster than confluence -> shorter cache.
 _KALSHI_TTL_MS = 30_000
 _kalshi_cache: dict = {"ts": 0, "markets": None}
+
+# BRTI proxy: the settlement reference for pricing -> short cache.
+_BRTI_TTL_MS = 15_000
+_brti_cache: dict = {"ts": 0, "brti": None}
 
 _BIAS = {
     "TREND_UP": "WITH-TREND LONG — only buy with-trend pullbacks, never fade",
@@ -84,6 +88,9 @@ class Snapshot:
     # Phase 3 Kalshi ranker output (scored candidates) + a status note
     kalshi: list
     kalshi_note: str
+    # BRTI proxy (settlement reference for pricing) + basis vs exchange spot
+    brti: float | None
+    brti_basis_bps: float | None
 
 
 def _rv_short(df: pd.DataFrame, tf: str, window: int = 30) -> float | None:
@@ -143,6 +150,15 @@ def _trend_drift(df: pd.DataFrame, tf: str, window: int = 60) -> float:
         return 0.0
     mu = float(lr.tail(window).mean() * (YEAR_MS / TF_MS[tf]))
     return float(np.clip(mu, -2.0, 2.0))
+
+
+def _get_brti(exchange_spot, now_ms: int) -> dict:
+    """TTL-cached consolidated BRTI proxy."""
+    if _brti_cache["brti"] is not None and (now_ms - _brti_cache["ts"]) < _BRTI_TTL_MS:
+        return _brti_cache["brti"]
+    b = brti.get_brti(exchange_spot=exchange_spot)
+    _brti_cache.update(ts=now_ms, brti=b)
+    return b
 
 
 def _get_markets(now_ms: int) -> list:
@@ -294,16 +310,22 @@ def build_snapshot(conn, tf: str = "1m", now_ms: int = 0,
             bias=None, inflection=None, levels=[], confluence={},
             confluence_ext=ext, sources=sources,
             kalshi=[], kalshi_note="warming up — no regime read yet",
+            brti=None, brti_basis_bps=None,
         )
 
     ev = _evaluate(df, warmup)
     r = ev["reading"]
 
+    # BRTI proxy is the settlement reference -> price fair value against it,
+    # not the single-venue exchange spot. Fall back to exchange spot if down.
+    b = _get_brti(ev["spot"], now_ms)
+    brti_price = b.get("brti") or ev["spot"]
+
     # Phase 3: regime-gated Kalshi ranking. sigma from rv_short (responsive),
-    # else DVOL scaled to a fraction. S is our spot as a BRTI proxy.
+    # else DVOL scaled to a fraction.
     sigma = ext.get("rv_short") or (ext.get("dvol") / 100 if ext.get("dvol") else None)
     kalshi_rows, kalshi_note = _rank_kalshi(
-        conn, now_ms, S=ev["spot"], sigma=sigma, regime=r.label, conf=r.confidence,
+        conn, now_ms, S=brti_price, sigma=sigma, regime=r.label, conf=r.confidence,
         inflection_active=ev["inflection"] is not None, session_vwap=ev["session_vwap"],
         trend_drift=_trend_drift(df, tf), tf=tf,
     )
@@ -316,6 +338,7 @@ def build_snapshot(conn, tf: str = "1m", now_ms: int = 0,
         inflection=ev["inflection"], levels=ev["levels"], confluence=ev["confluence"],
         confluence_ext=ext, sources=sources,
         kalshi=kalshi_rows, kalshi_note=kalshi_note,
+        brti=b.get("brti"), brti_basis_bps=b.get("basis_bps"),
     )
 
 

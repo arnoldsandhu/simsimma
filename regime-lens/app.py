@@ -114,7 +114,11 @@ def render(st, snap, now_ms: int) -> None:
 def _render_kalshi(st, snap) -> None:
     """Section 4: regime-gated Kalshi edge ranker."""
     st.subheader("Kalshi ranker — regime-gated edge")
-    st.caption(snap.kalshi_note or "")
+    if snap.brti is not None:
+        basis = f" · basis vs exch spot {snap.brti_basis_bps:+.1f} bps" if snap.brti_basis_bps is not None else ""
+        st.caption(f"priced vs BRTI proxy ${snap.brti:,.2f}{basis} · {snap.kalshi_note or ''}")
+    else:
+        st.caption(snap.kalshi_note or "")
     rows = snap.kalshi or []
     if not rows:
         st.info("No candidates. In a transitional / low-confidence tape the list "
@@ -217,6 +221,7 @@ def selftest(db: str, tf: str, venue: str) -> None:
         print(f"CONFLUENCE: {snap.confluence}")
     print(f"CONFLUENCE_EXT (Phase 2): {snap.confluence_ext}")
     print(f"SOURCES: {snap.sources}")
+    print(f"BRTI proxy: {snap.brti}  basis_bps: {snap.brti_basis_bps}")
     print(f"KALSHI ({snap.kalshi_note}):")
     for r in (snap.kalshi or [])[:8]:
         print(f"  {r['ticker']} {r['side']} K={r['strike']} p_fair={r['p_fair']} "

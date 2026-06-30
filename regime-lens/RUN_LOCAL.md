@@ -117,10 +117,9 @@ The screen's bottom panel ranks live Kalshi hourly BTC above/below markets
   `edge × (conf/100) × liquidity / (1 + spread)`. The `conf/100` term is the
   discipline lock: low-confidence tape empties the list.
 
-It uses `rv_short` (or DVOL) for sigma and your spot as a BRTI proxy. **Before
-trusting any edge number, backtest `fair_prob` calibration** (do markets you
-rate 70% resolve YES ~70%?) and model against BRTI, not exchange spot — see the
-Validation section in the spec. The screen surfaces candidates; the human trades.
+It uses `rv_short` (or DVOL) for sigma and prices fair value against the **BRTI
+proxy** (see below), not single-venue exchange spot. The screen surfaces
+candidates; the human trades.
 
 Quick check:
 
@@ -128,6 +127,34 @@ Quick check:
 python -m ingest.kalshi          # live ladder + minutes left
 python -m ranker.kalshi_rank     # ranker demo on a synthetic market
 ```
+
+## BRTI proxy (`ingest/brti.py`)
+
+Kalshi settles on CF Benchmarks' BRTI. The licensed feed needs a subscription,
+so `ingest/brti.py` builds a **volume-weighted consolidated mid** across BRTI's
+constituent USD venues (Coinbase, Kraken, Bitstamp, Gemini). It's a proxy, not
+the licensed index — the ranker prices against it and the screen shows the basis
+vs exchange spot so the few-bps gap is visible near expiry. If you have a CF
+Benchmarks key, swap in the real feed there.
+
+```bash
+python -m ingest.brti
+```
+
+## Validation — calibrate before you trust the edge
+
+A miscalibrated probability is worse than no model. The harness scores
+`fair_prob` against realized outcomes on backfilled spot:
+
+```bash
+python scripts/run_calibration.py --hours 48 --horizon 60
+```
+
+It prints a reliability table (do 70%-rated markets resolve YES ~70%?), the
+Brier score, and ECE — overall and per regime. Re-run on more history, and in
+production calibrate against BRTI. If a regime's bins are systematically off
+(e.g. trend probabilities running hot), temper that model before sizing off its
+edge.
 
 ## Notes
 

@@ -21,22 +21,28 @@ def test_no_win_and_loss():
     assert abs(trade_pnl("NO", 0.40, 0.38, "yes") - (0 - 0.62 - 0.02)) < 1e-9
 
 
-def _c(ts, ya, yb):
-    return {"end_period_ts": ts, "yes_ask": {"close_dollars": str(ya)},
-            "yes_bid": {"close_dollars": str(yb)}}
+def test_slippage_worsens_entry():
+    # +2c slippage on a 0.40 ask -> entry 0.42, fee(0.42)=ceil(0.07*0.42*0.58*100)/100=0.02
+    base = trade_pnl("YES", 0.40, 0.38, "yes", slippage=0.0)
+    slipped = trade_pnl("YES", 0.40, 0.38, "yes", slippage=0.02)
+    assert abs((base - slipped) - 0.02) < 1e-9        # 2c worse fill
+
+
+def _c(ts, ya, yb, oi=100):
+    return {"end_period_ts": ts, "open_interest_fp": str(oi),
+            "yes_ask": {"close_dollars": str(ya)}, "yes_bid": {"close_dollars": str(yb)}}
 
 
 def test_entry_quote_picks_last_before_decision():
     candles = [_c(100, 0.5, 0.48), _c(160, 0.6, 0.58), _c(220, 0.7, 0.68)]
-    # decision at 170 -> last candle ending <=170 is ts=160
-    assert entry_quote(candles, 170) == (0.6, 0.58)
+    q = entry_quote(candles, 170)  # last candle ending <=170 is ts=160
+    assert q["yes_ask"] == 0.6 and q["yes_bid"] == 0.58 and q["oi"] == 100
 
 
 def test_entry_quote_none_when_no_prior_or_invalid():
-    candles = [_c(200, 0.5, 0.48)]
-    assert entry_quote(candles, 100) is None          # nothing before decision
-    bad = [_c(100, 1.0, 0.0)]                          # degenerate quote
-    assert entry_quote(bad, 150) is None
+    assert entry_quote([_c(200, 0.5, 0.48)], 100) is None   # nothing before decision
+    assert entry_quote([_c(100, 1.0, 0.0)], 150) is None     # degenerate quote
+    assert entry_quote([_c(100, 0.4, 0.6)], 150) is None     # crossed (bid>ask)
 
 
 if __name__ == "__main__":

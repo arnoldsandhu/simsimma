@@ -85,6 +85,11 @@ def fair_prob_above(S: float, K: float, tau: float, sigma: float,
         return prob_above_ou(S, K, tau, sigma, mean=session_vwap, half_life=hl)
 
     if regime in ("TREND_UP", "TREND_DOWN"):
+        # NOTE: an A/B calibration run (validation/calibration.py) showed that
+        # damping this drift and shrinking toward BS by confidence did NOT
+        # improve calibration (ECE got marginally worse on identical data) --
+        # the mid-bin gaps were a sample-direction artifact, not an over-hot
+        # drift. Left untempered until the harness justifies a change.
         return prob_above_drift(S, K, tau, sigma, mu=trend_drift)
 
     return prob_above_bs(S, K, tau, sigma)

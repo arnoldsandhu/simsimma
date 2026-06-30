@@ -45,6 +45,17 @@ HTTP_PROBES = [
         "https://www.deribit.com/api/v2/public/ticker?instrument_name=BTC-PERPETUAL",
         lambda j: f"last={j.get('result', {}).get('last_price')}",
     ),
+    # Phase 2 confluence sources (HTTP only; no websocket).
+    (
+        "OKX (funding)",
+        "https://www.okx.com/api/v5/public/funding-rate?instId=BTC-USDT-SWAP",
+        lambda j: f"funding={j['data'][0]['fundingRate']}" if j.get("data") else "no data",
+    ),
+    (
+        "Yahoo (x-asset)",
+        "https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1h&range=5d",
+        lambda j: f"SPY pts={len(j['chart']['result'][0]['timestamp'])}",
+    ),
 ]
 
 # (label, ws url, subscribe payload, brief note)

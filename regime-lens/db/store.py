@@ -122,3 +122,27 @@ def fetch_bars(conn: sqlite3.Connection, tf: str, n: int = 500) -> pd.DataFrame:
     df = df.iloc[::-1].reset_index(drop=True)
     df = df.rename(columns=_BAR_RENAME)
     return df[FEATURE_BAR_COLS]
+
+
+def upsert_vol(conn: sqlite3.Connection, ts_utc: int, rv_short=None,
+               dvol=None, skew_25d=None) -> None:
+    """Upsert one vol-inputs row (rv_short / DVOL / 25d skew) keyed on ts."""
+    conn.execute(
+        """
+        INSERT INTO vol (ts_utc, rv_short, dvol, skew_25d) VALUES (?, ?, ?, ?)
+        ON CONFLICT(ts_utc) DO UPDATE SET
+            rv_short=excluded.rv_short, dvol=excluded.dvol, skew_25d=excluded.skew_25d
+        """,
+        (int(ts_utc), rv_short, dvol, skew_25d),
+    )
+    conn.commit()
+
+
+def fetch_latest_vol(conn: sqlite3.Connection) -> dict | None:
+    """Most recent vol-inputs row as a dict, or None if the table is empty."""
+    row = conn.execute(
+        "SELECT ts_utc, rv_short, dvol, skew_25d FROM vol ORDER BY ts_utc DESC LIMIT 1"
+    ).fetchone()
+    if not row:
+        return None
+    return {"ts_utc": row[0], "rv_short": row[1], "dvol": row[2], "skew_25d": row[3]}

@@ -1,0 +1,4 @@
+variant,n,pnl_avg,pred_edge_avg,gap_pred_minus_real,hit,fade_avg,brier,ece
+realized_30bar,776,-0.0065,0.0348,0.0413,0.365,-0.0511,0.0863,0.0336
+dvol,999,-0.0474,0.0507,0.0981,0.343,-0.009,0.0912,0.0403
+realized+dvol_blend,685,-0.0161,0.038,0.0541,0.289,-0.0413,0.0873,0.0325

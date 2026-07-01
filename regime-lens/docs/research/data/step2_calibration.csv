@@ -1,0 +1,3 @@
+variant,n,events,pnl_total,pnl_avg,hit,fade_avg,brier,ece
+uncalibrated,776,60,-5.04,-0.0065,0.365,-0.0511,0.0863,0.0336
+calibrated_isotonic,908,60,-5.98,-0.0066,0.621,-0.0495,0.0862,0.0311

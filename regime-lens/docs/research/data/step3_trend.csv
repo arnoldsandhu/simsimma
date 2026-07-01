@@ -1,0 +1,4 @@
+method,coverage,n_up,n_dn,fwd_up_bps,fwd_dn_bps,separation_bps,hit_up,hit_dn
+raw_ADX_ER,0.247,1160,1317,-5.75,0.74,-6.49,0.454,0.48
+R2_qualified,0.303,1121,1915,-11.22,0.62,-11.84,0.364,0.456
+MTF_aligned,0.076,190,570,-4.58,-8.24,3.66,0.395,0.539

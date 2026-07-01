@@ -1,0 +1,8 @@
+level_type,holds,tests,hold_rate
+VolumeProfile,492,692,0.711
+POC,48,66,0.727
+VAH,51,63,0.81
+VAL,35,55,0.636
+HVN,358,508,0.705
+Fib,213,323,0.659
+Random,193,269,0.717

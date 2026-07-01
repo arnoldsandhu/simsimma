@@ -63,36 +63,27 @@ const ageStr = ms => { if(ms===null||ms===undefined) return "—"; const s=Math.
 async function getJSON(name){ try{ const r=await fetch(name+"?t="+Date.now(),{cache:"no-store"});
   if(!r.ok) return null; return await r.json(); }catch(e){ return null; } }
 
-function topCard(s){
-  const rows = s.kalshi||[];
-  if(!rows.length){
-    return `<div class="card"><h2>Top signal</h2><div class="big">Stand down</div>
-      <div class="muted">${s.kalshi_note||"no candidate"}</div></div>`;
-  }
-  const r = rows[0];
-  const sideCls = r.side==="YES"?"yes":"no";
-  return `<div class="card"><h2>Top signal</h2>
-    <div class="row"><div class="big"><span class="${sideCls}">${r.side}</span> ${money(r.strike)}</div>
-      <div class="muted">${f(r.mins_left,0)}m left</div></div>
-    <div class="muted" style="margin:4px 0">${r.ticker}</div>
-    <div class="grid2" style="margin-top:6px">
-      <div class="kv"><span>fair p</span><b>${f(r.p_fair,3)}</b></div>
-      <div class="kv"><span>market</span><b>${f(r.market_price,2)}</b></div>
-      <div class="kv"><span>edge (net)</span><b>${f(r.edge_net,3)}</b></div>
-      <div class="kv"><span>σ-sens</span><b>${f(r.sigma_sens,3)}</b></div>
-    </div></div>`;
+function decorationBanner(){
+  // The binary ranker has NO demonstrated cost-surviving edge. Never render its
+  // edge/fair-value as actionable. See docs/PROJECT_DEBRIEF.md.
+  return `<div class="card stale"><h2>Kalshi ranker — ⚠ DECORATION</h2>
+    <div><b>Not a validated signal.</b> Backtesting showed no cost-surviving edge
+    (predicted edge did not realize; highest-conviction picks lost most). Do NOT
+    trade off these numbers — they are shown for context only.</div></div>`;
 }
 
 function rankerTable(s){
   const rows=(s.kalshi||[]).slice(0,12);
   if(!rows.length) return "";
+  // edge/score columns removed — they read as actionable and are not.
   const body=rows.map(r=>`<tr><td>${money(r.strike)}</td>
     <td class="${r.side==='YES'?'yes':'no'}">${r.side}</td>
     <td>${f(r.p_fair,2)}</td><td>${f(r.market_price,2)}</td>
-    <td>${f(r.edge_net,3)}</td><td>${f(r.mins_left,0)}</td></tr>`).join("");
-  return `<details><summary>Full ranker (${(s.kalshi||[]).length})</summary>
-    <table><thead><tr><th>strike</th><th>side</th><th>p</th><th>mkt</th><th>edge</th><th>min</th></tr></thead>
-    <tbody>${body}</tbody></table></details>`;
+    <td>${f(r.mins_left,0)}</td></tr>`).join("");
+  return `<details><summary>ranker numbers (decoration only, ${(s.kalshi||[]).length})</summary>
+    <table><thead><tr><th>strike</th><th>side</th><th>model p*</th><th>mkt</th><th>min</th></tr></thead>
+    <tbody>${body}</tbody></table>
+    <div class="muted">*unvalidated model probability — does not beat market. edge/score removed.</div></details>`;
 }
 
 function levels(s){
@@ -143,7 +134,7 @@ function render(s){
        <div class="kv" style="margin-top:6px"><span>spot</span><b>${money(s.spot)}</b></div>
        <div class="kv"><span>BRTI proxy</span><b>${money(s.brti)} <span class="muted">(${f(s.brti_basis_bps,1)} bps)</span></b></div>
      </div>`
-    + topCard(s) + rankerTable(s) + levels(s) + confluence(s);
+    + decorationBanner() + rankerTable(s) + levels(s) + confluence(s);
 }
 
 async function tick(){ const s=await getJSON("snapshot.json"); if(s) render(s); }

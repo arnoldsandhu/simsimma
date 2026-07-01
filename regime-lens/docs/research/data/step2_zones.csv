@@ -1,0 +1,5 @@
+bucket,holds,tests,hold_rate
+1_family,528,748,0.706
+2_families,152,215,0.707
+3+_families,78,104,0.75
+random_single,245,346,0.708

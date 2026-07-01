@@ -107,32 +107,32 @@ def render(st, snap, now_ms: int) -> None:
     # Phase 2 external confluence ------------------------------------------- #
     _render_confluence_ext(st, snap)
 
-    # 4) KALSHI RANKER ------------------------------------------------------ #
+    # 4) KALSHI RANKER — DECORATION (not a validated signal) ---------------- #
     _render_kalshi(st, snap)
 
 
 def _render_kalshi(st, snap) -> None:
-    """Section 4: regime-gated Kalshi edge ranker."""
-    st.subheader("Kalshi ranker — regime-gated edge")
-    if snap.brti is not None:
-        basis = f" · basis vs exch spot {snap.brti_basis_bps:+.1f} bps" if snap.brti_basis_bps is not None else ""
-        st.caption(f"priced vs BRTI proxy ${snap.brti:,.2f}{basis} · {snap.kalshi_note or ''}")
-    else:
-        st.caption(snap.kalshi_note or "")
+    """Kalshi ranker — DECORATION. The binary fair-value/edge numbers have NO
+    demonstrated cost-surviving edge (see docs/PROJECT_DEBRIEF.md): predicted edge
+    did not realize, top-conviction picks were the worst (adverse selection), and
+    the efficient-market null was not rejected. Rendered de-emphasized and NEVER
+    as an actionable signal."""
+    st.subheader("Kalshi ranker — ⚠️ DECORATION (not a validated signal)")
+    st.error("These fair-value / edge numbers are NOT a trade signal. Backtesting "
+             "showed no cost-surviving edge (predicted edge did not realize; "
+             "highest-conviction picks lost most). Do not trade off them.")
     rows = snap.kalshi or []
     if not rows:
-        st.info("No candidates. In a transitional / low-confidence tape the list "
-                "empties by design — stand down.")
         return
-    table = [{
-        "ticker": r["ticker"], "strike": r["strike"], "side": r["side"],
-        "p_fair": r["p_fair"], "mkt": r["market_price"], "edge_net": r["edge_net"],
-        "score": r["score"], "mins": r["mins_left"], "depth": r["depth"],
-        "σ-sens": r["sigma_sens"],
-    } for r in rows[:15]]
-    st.dataframe(table, use_container_width=True, hide_index=True)
-    st.caption("σ-sens = |Δp| for a +1 vol-pt move — near-the-money binaries are "
-               "violently sensitive to vol/time. Size off regime confidence, not raw edge.")
+    with st.expander("show ranker numbers (decoration only)"):
+        table = [{
+            "ticker": r["ticker"], "strike": r["strike"], "side": r["side"],
+            "model_p (unvalidated)": r["p_fair"], "mkt": r["market_price"],
+            "mins": r["mins_left"],
+        } for r in rows[:15]]
+        st.dataframe(table, use_container_width=True, hide_index=True)
+        st.caption("edge/score columns removed — they read as actionable and are not. "
+                   "Model probability shown for curiosity only; it does not beat market.")
 
 
 def _render_confluence_ext(st, snap) -> None:
